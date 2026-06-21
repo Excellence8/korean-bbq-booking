@@ -9,22 +9,40 @@ export default function Register() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError(null)
+    setMessage(null)
+
+    // 密码至少 6 位
+    if (password.length < 6) {
+      setError('密码长度至少为 6 位')
+      setLoading(false)
+      return
+    }
 
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        emailRedirectTo: 'http://localhost:3000/auth/login',
+      },
     })
 
     if (error) {
       setError(error.message)
+    } else if (data.user) {
+      // 注册成功，直接跳转登录
+      setMessage('注册成功！请登录')
+      setTimeout(() => {
+        router.push('/auth/login')
+      }, 1500)
     } else {
-      router.push('/auth/login')
+      setError('注册失败，请重试')
     }
     setLoading(false)
   }
@@ -45,16 +63,18 @@ export default function Register() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">密码</label>
+            <label className="block text-sm font-medium mb-1">密码（至少 6 位）</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full px-4 py-2 border rounded-lg"
               required
+              minLength={6}
             />
           </div>
           {error && <p className="text-red-500 text-sm">{error}</p>}
+          {message && <p className="text-green-500 text-sm">{message}</p>}
           <button
             type="submit"
             disabled={loading}

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 
 export default function Home() {
   const router = useRouter()
@@ -35,6 +36,16 @@ export default function Home() {
     <main className="flex min-h-screen flex-col items-center justify-center p-24">
       <h1 className="text-4xl font-bold">Korean BBQ Booking</h1>
       <p className="mt-4 text-lg">韩国烤肉预订平台</p>
+
+      <div className="mt-8 space-x-4">
+        <Link href="/restaurants" className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+          浏览餐厅
+        </Link>
+        <Link href="/my-bookings" className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+          我的预订
+        </Link>
+      </div>
+
       {user ? (
         <div className="mt-8 text-center">
           <p className="text-green-600">✅ 已登录：{user.email}</p>
