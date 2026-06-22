@@ -9,19 +9,42 @@ export default function Home() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [isMerchant, setIsMerchant] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
-      setLoading(false)
+      const user = session?.user ?? null
+      setUser(user)
+      if (user) {
+        checkMerchantRole(user.id)
+      } else {
+        setLoading(false)
+      }
     })
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
+      const user = session?.user ?? null
+      setUser(user)
+      if (user) {
+        checkMerchantRole(user.id)
+      } else {
+        setIsMerchant(false)
+        setLoading(false)
+      }
     })
 
     return () => listener.subscription.unsubscribe()
   }, [])
+
+  const checkMerchantRole = async (userId: string) => {
+    const { data } = await supabase
+      .from('users')
+      .select('role')
+      .eq('id', userId)
+      .single()
+    setIsMerchant(data?.role === 'merchant')
+    setLoading(false)
+  }
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -37,18 +60,24 @@ export default function Home() {
       <h1 className="text-4xl font-bold">Korean BBQ Booking</h1>
       <p className="mt-4 text-lg">韩国烤肉预订平台</p>
 
-      <div className="mt-8 space-x-4">
+      <div className="mt-8 space-x-4 flex flex-wrap justify-center gap-2">
         <Link href="/restaurants" className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
           浏览餐厅
         </Link>
         <Link href="/my-bookings" className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
           我的预订
         </Link>
+        {isMerchant && (
+          <Link href="/admin" className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+            🔐 商家管理
+          </Link>
+        )}
       </div>
 
       {user ? (
         <div className="mt-8 text-center">
           <p className="text-green-600">✅ 已登录：{user.email}</p>
+          {isMerchant && <p className="text-purple-600 text-sm">商家账号</p>}
           <button
             onClick={handleLogout}
             className="mt-4 px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
