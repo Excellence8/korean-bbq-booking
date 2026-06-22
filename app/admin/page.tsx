@@ -12,13 +12,13 @@ interface Booking {
   booking_time: string
   status: string
   created_at: string
-  users?: { email: string }
-  restaurants?: { name: string }
 }
 
 export default function AdminPage() {
   const router = useRouter()
   const [bookings, setBookings] = useState<Booking[]>([])
+  const [usersMap, setUsersMap] = useState<Record<string, string>>({})
+  const [restaurantsMap, setRestaurantsMap] = useState<Record<number, string>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [user, setUser] = useState<any>(null)
@@ -41,20 +41,14 @@ export default function AdminPage() {
           .eq('id', user.id)
           .maybeSingle()
 
-        if (roleError) {
-          setError('数据库查询失败')
-          setLoading(false)
-          return
-        }
-
-        if (!userData || userData.role !== 'merchant') {
+        if (roleError || !userData || userData.role !== 'merchant') {
           setError('您不是商家，无权访问')
           setLoading(false)
           return
         }
 
         setIsMerchant(true)
-        await fetchBookings()
+        await fetchAllData()
         setLoading(false)
 
       } catch (err: any) {
@@ -66,20 +60,41 @@ export default function AdminPage() {
     checkUser()
   }, [router])
 
-  const fetchBookings = async () => {
-    const { data, error } = await supabase
+  const fetchAllData = async () => {
+    // 1. 获取所有预订
+    const { data: bookingsData, error: bookingsError } = await supabase
       .from('bookings')
-      .select(`
-        *,
-        users:user_id (email),
-        restaurants:restaurant_id (name)
-      `)
+      .select('*')
       .order('booking_time', { ascending: false })
 
-    if (error) {
-      setError(error.message)
-    } else {
-      setBookings(data || [])
+    if (bookingsError) {
+      setError(bookingsError.message)
+      return
+    }
+    setBookings(bookingsData || [])
+
+    // 2. 获取所有用户信息（用于显示邮箱）
+    const userIds = [...new Set((bookingsData || []).map(b => b.user_id).filter(Boolean))]
+    if (userIds.length > 0) {
+      const { data: usersData } = await supabase
+        .from('users')
+        .select('id, email')
+        .in('id', userIds)
+      const map: Record<string, string> = {}
+      usersData?.forEach(u => { map[u.id] = u.email })
+      setUsersMap(map)
+    }
+
+    // 3. 获取所有餐厅信息
+    const restaurantIds = [...new Set((bookingsData || []).map(b => b.restaurant_id).filter(Boolean))]
+    if (restaurantIds.length > 0) {
+      const { data: restaurantsData } = await supabase
+        .from('restaurants')
+        .select('id, name')
+        .in('id', restaurantIds)
+      const map: Record<number, string> = {}
+      restaurantsData?.forEach(r => { map[r.id] = r.name })
+      setRestaurantsMap(map)
     }
   }
 
@@ -93,7 +108,7 @@ export default function AdminPage() {
     if (error) {
       alert('更新失败：' + error.message)
     } else {
-      await fetchBookings()
+      await fetchAllData()
     }
     setActionLoading(null)
   }
@@ -102,21 +117,16 @@ export default function AdminPage() {
     return <div className="flex min-h-screen items-center justify-center">加载中...</div>
   }
 
-  if (!user) {
-    return <div className="flex min-h-screen items-center justify-center">请先登录</div>
-  }
-
-  if (!isMerchant) {
+  if (!user || !isMerchant) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center p-24">
         <h1 className="text-2xl font-bold text-red-600">无权访问</h1>
-        <p className="mt-4">您不是商家，无法访问管理后台</p>
+        <p className="mt-4">{error || '请使用商家账号登录'}</p>
         <a href="/" className="mt-4 text-blue-600 hover:underline">返回首页</a>
       </div>
     )
   }
 
-  // 统计信息
   const totalBookings = bookings.length
   const pendingBookings = bookings.filter(b => b.status === 'pending').length
   const confirmedBookings = bookings.filter(b => b.status === 'confirmed').length
@@ -141,7 +151,6 @@ export default function AdminPage() {
           </button>
         </div>
 
-        {/* 统计卡片 */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
           <div className="bg-white rounded-lg shadow p-4">
             <p className="text-gray-500 text-sm">总预订</p>
@@ -184,8 +193,8 @@ export default function AdminPage() {
                 <tbody>
                   {bookings.map((booking) => (
                     <tr key={booking.id} className="border-t hover:bg-gray-50">
-                      <td className="px-4 py-2">{booking.restaurants?.name || '-'}</td>
-                      <td className="px-4 py-2">{booking.users?.email || '匿名'}</td>
+                      <td className="px-4 py-2">{restaurantsMap[booking.restaurant_id] || '-'}</td>
+                      <td className="px-4 py-2">{usersMap[booking.user_id] || '匿名'}</td>
                       <td className="px-4 py-2">{new Date(booking.booking_time).toLocaleString('zh-CN')}</td>
                       <td className="px-4 py-2">{booking.party_size}</td>
                       <td className="px-4 py-2">
@@ -220,12 +229,8 @@ export default function AdminPage() {
                             </button>
                           </div>
                         )}
-                        {booking.status === 'confirmed' && (
-                          <span className="text-xs text-green-600">已确认</span>
-                        )}
-                        {booking.status === 'cancelled' && (
-                          <span className="text-xs text-red-600">已取消</span>
-                        )}
+                        {booking.status === 'confirmed' && <span className="text-xs text-green-600">已确认</span>}
+                        {booking.status === 'cancelled' && <span className="text-xs text-red-600">已取消</span>}
                       </td>
                     </tr>
                   ))}

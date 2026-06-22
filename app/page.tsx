@@ -10,13 +10,14 @@ export default function Home() {
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [isMerchant, setIsMerchant] = useState(false)
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       const user = session?.user ?? null
       setUser(user)
       if (user) {
-        checkMerchantRole(user.id)
+        checkUserRole(user)
       } else {
         setLoading(false)
       }
@@ -26,9 +27,10 @@ export default function Home() {
       const user = session?.user ?? null
       setUser(user)
       if (user) {
-        checkMerchantRole(user.id)
+        checkUserRole(user)
       } else {
         setIsMerchant(false)
+        setIsSuperAdmin(false)
         setLoading(false)
       }
     })
@@ -36,11 +38,19 @@ export default function Home() {
     return () => listener.subscription.unsubscribe()
   }, [])
 
-  const checkMerchantRole = async (userId: string) => {
+  const checkUserRole = async (user: any) => {
+    // 超管：硬编码邮箱
+    if (user.email === 'dgsjk3258@126.com') {
+      setIsSuperAdmin(true)
+      setIsMerchant(true)
+      setLoading(false)
+      return
+    }
+
     const { data } = await supabase
       .from('users')
       .select('role')
-      .eq('id', userId)
+      .eq('id', user.id)
       .single()
     setIsMerchant(data?.role === 'merchant')
     setLoading(false)
@@ -72,12 +82,18 @@ export default function Home() {
             🔐 商家管理
           </Link>
         )}
+        {isSuperAdmin && (
+          <Link href="/superadmin" className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+            🏢 平台管理
+          </Link>
+        )}
       </div>
 
       {user ? (
         <div className="mt-8 text-center">
           <p className="text-green-600">✅ 已登录：{user.email}</p>
           {isMerchant && <p className="text-purple-600 text-sm">商家账号</p>}
+          {isSuperAdmin && <p className="text-red-600 text-sm font-bold">平台管理员</p>}
           <button
             onClick={handleLogout}
             className="mt-4 px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
