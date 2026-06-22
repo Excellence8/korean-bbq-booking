@@ -12,9 +12,8 @@ interface Booking {
   booking_time: string
   status: string
   created_at: string
-  users?: {
-    email: string
-  }
+  users?: { email: string }
+  restaurants?: { name: string }
 }
 
 export default function AdminPage() {
@@ -24,63 +23,57 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null)
   const [user, setUser] = useState<any>(null)
   const [isMerchant, setIsMerchant] = useState(false)
+  const [actionLoading, setActionLoading] = useState<number | null>(null)
 
-  // 检查用户是否为商家
   useEffect(() => {
     const checkUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        router.push('/auth/login')
-        return
-      }
-      setUser(user)
+      try {
+        const { data: { user }, error: userError } = await supabase.auth.getUser()
+        if (userError || !user) {
+          router.push('/auth/login')
+          return
+        }
+        setUser(user)
 
-      // 检查 users 表中的 role
-      const { data, error } = await supabase
-        .from('users')
-        .select('role')
-        .eq('id', user.id)
-        .single()
+        const { data: userData, error: roleError } = await supabase
+          .from('users')
+          .select('role')
+          .eq('id', user.id)
+          .maybeSingle()
 
-      if (error) {
-        setError('用户信息不存在，请先注册')
-        return
-      }
+        if (roleError) {
+          setError('数据库查询失败')
+          setLoading(false)
+          return
+        }
 
-      if (data?.role === 'merchant') {
+        if (!userData || userData.role !== 'merchant') {
+          setError('您不是商家，无权访问')
+          setLoading(false)
+          return
+        }
+
         setIsMerchant(true)
-        fetchBookings(user.id)
-      } else {
-        setError('您不是商家，无权访问此页面')
+        await fetchBookings()
+        setLoading(false)
+
+      } catch (err: any) {
+        setError(err.message || '未知错误')
+        setLoading(false)
       }
-      setLoading(false)
     }
 
     checkUser()
   }, [router])
 
-  const fetchBookings = async (userId: string) => {
-    // 先获取商家关联的餐厅
-    const { data: restaurants } = await supabase
-      .from('restaurants')
-      .select('id')
-      .eq('id', userId) // 假设 restaurant_id 与 user_id 对应
-
-    if (!restaurants || restaurants.length === 0) {
-      setBookings([])
-      setLoading(false)
-      return
-    }
-
-    const restaurantIds = restaurants.map(r => r.id)
-
+  const fetchBookings = async () => {
     const { data, error } = await supabase
       .from('bookings')
       .select(`
         *,
-        users:user_id (email)
+        users:user_id (email),
+        restaurants:restaurant_id (name)
       `)
-      .in('restaurant_id', restaurantIds)
       .order('booking_time', { ascending: false })
 
     if (error) {
@@ -88,10 +81,10 @@ export default function AdminPage() {
     } else {
       setBookings(data || [])
     }
-    setLoading(false)
   }
 
   const updateBookingStatus = async (bookingId: number, status: 'confirmed' | 'cancelled') => {
+    setActionLoading(bookingId)
     const { error } = await supabase
       .from('bookings')
       .update({ status })
@@ -100,10 +93,9 @@ export default function AdminPage() {
     if (error) {
       alert('更新失败：' + error.message)
     } else {
-      setBookings(bookings.map(b =>
-        b.id === bookingId ? { ...b, status } : b
-      ))
+      await fetchBookings()
     }
+    setActionLoading(null)
   }
 
   if (loading) {
@@ -124,11 +116,20 @@ export default function AdminPage() {
     )
   }
 
+  // 统计信息
+  const totalBookings = bookings.length
+  const pendingBookings = bookings.filter(b => b.status === 'pending').length
+  const confirmedBookings = bookings.filter(b => b.status === 'confirmed').length
+  const cancelledBookings = bookings.filter(b => b.status === 'cancelled').length
+
   return (
-    <main className="min-h-screen p-8">
-      <div className="max-w-4xl mx-auto">
+    <main className="min-h-screen p-8 bg-gray-50">
+      <div className="max-w-6xl mx-auto">
         <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold">商家管理后台</h1>
+          <div>
+            <h1 className="text-3xl font-bold">📊 商家管理后台</h1>
+            <p className="text-gray-600">当前用户：{user?.email}</p>
+          </div>
           <button
             onClick={async () => {
               await supabase.auth.signOut()
@@ -140,6 +141,26 @@ export default function AdminPage() {
           </button>
         </div>
 
+        {/* 统计卡片 */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+          <div className="bg-white rounded-lg shadow p-4">
+            <p className="text-gray-500 text-sm">总预订</p>
+            <p className="text-2xl font-bold">{totalBookings}</p>
+          </div>
+          <div className="bg-yellow-50 rounded-lg shadow p-4 border border-yellow-200">
+            <p className="text-yellow-700 text-sm">待确认</p>
+            <p className="text-2xl font-bold text-yellow-700">{pendingBookings}</p>
+          </div>
+          <div className="bg-green-50 rounded-lg shadow p-4 border border-green-200">
+            <p className="text-green-700 text-sm">已确认</p>
+            <p className="text-2xl font-bold text-green-700">{confirmedBookings}</p>
+          </div>
+          <div className="bg-red-50 rounded-lg shadow p-4 border border-red-200">
+            <p className="text-red-700 text-sm">已取消</p>
+            <p className="text-2xl font-bold text-red-700">{cancelledBookings}</p>
+          </div>
+        </div>
+
         {error && <p className="text-red-500 mb-4">{error}</p>}
 
         <div className="bg-white rounded-lg shadow-lg p-6">
@@ -148,19 +169,26 @@ export default function AdminPage() {
           {bookings.length === 0 ? (
             <p className="text-gray-500">暂无预订</p>
           ) : (
-            <div className="space-y-4">
-              {bookings.map((booking) => (
-                <div key={booking.id} className="border rounded-lg p-4">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-sm text-gray-500">
-                        用户：{booking.users?.email || '匿名用户'}
-                      </p>
-                      <p className="text-lg font-medium">
-                        📅 {new Date(booking.booking_time).toLocaleString('zh-CN')}
-                      </p>
-                      <p className="text-gray-600">👥 {booking.party_size} 人</p>
-                      <p className="mt-1">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left">餐厅</th>
+                    <th className="px-4 py-2 text-left">用户</th>
+                    <th className="px-4 py-2 text-left">时间</th>
+                    <th className="px-4 py-2 text-left">人数</th>
+                    <th className="px-4 py-2 text-left">状态</th>
+                    <th className="px-4 py-2 text-left">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bookings.map((booking) => (
+                    <tr key={booking.id} className="border-t hover:bg-gray-50">
+                      <td className="px-4 py-2">{booking.restaurants?.name || '-'}</td>
+                      <td className="px-4 py-2">{booking.users?.email || '匿名'}</td>
+                      <td className="px-4 py-2">{new Date(booking.booking_time).toLocaleString('zh-CN')}</td>
+                      <td className="px-4 py-2">{booking.party_size}</td>
+                      <td className="px-4 py-2">
                         <span className={`px-2 py-1 rounded-full text-xs font-semibold
                           ${booking.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : ''}
                           ${booking.status === 'confirmed' ? 'bg-green-100 text-green-800' : ''}
@@ -172,29 +200,37 @@ export default function AdminPage() {
                            booking.status === 'cancelled' ? '已取消' :
                            booking.status === 'completed' ? '已完成' : booking.status}
                         </span>
-                      </p>
-                    </div>
-                    <div className="space-x-2">
-                      {booking.status === 'pending' && (
-                        <>
-                          <button
-                            onClick={() => updateBookingStatus(booking.id, 'confirmed')}
-                            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-                          >
-                            确认
-                          </button>
-                          <button
-                            onClick={() => updateBookingStatus(booking.id, 'cancelled')}
-                            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
-                          >
-                            取消
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
+                      </td>
+                      <td className="px-4 py-2">
+                        {booking.status === 'pending' && (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => updateBookingStatus(booking.id, 'confirmed')}
+                              disabled={actionLoading === booking.id}
+                              className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 text-xs"
+                            >
+                              {actionLoading === booking.id ? '处理中...' : '确认'}
+                            </button>
+                            <button
+                              onClick={() => updateBookingStatus(booking.id, 'cancelled')}
+                              disabled={actionLoading === booking.id}
+                              className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 text-xs"
+                            >
+                              {actionLoading === booking.id ? '处理中...' : '取消'}
+                            </button>
+                          </div>
+                        )}
+                        {booking.status === 'confirmed' && (
+                          <span className="text-xs text-green-600">已确认</span>
+                        )}
+                        {booking.status === 'cancelled' && (
+                          <span className="text-xs text-red-600">已取消</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
